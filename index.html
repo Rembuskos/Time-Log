@@ -24,6 +24,17 @@
   header { padding: 20px 4px 24px; }
   h1 { font-size: 32px; font-weight: 700; margin: 0; letter-spacing: -0.5px; }
   .subtitle { color: #718096; font-size: 15px; margin-top: 4px; }
+  .setup-note {
+    background: #FFF8E5;
+    border: 1px solid #FFE0A3;
+    color: #8B6914;
+    padding: 12px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    line-height: 1.4;
+  }
+  .setup-note strong { color: #5B440A; }
   .card {
     background: #FFFFFF; border-radius: 18px;
     box-shadow: 0 1px 3px rgba(91, 141, 239, 0.08);
@@ -38,7 +49,7 @@
   .field label {
     flex: 0 0 90px; font-size: 15px; font-weight: 500; color: #2D3748;
   }
-  .field input[type="date"], .field input[type="time"] {
+  .field input[type="date"], .field input[type="time"], .field input[type="email"] {
     flex: 1; border: none; outline: none; background: transparent;
     font-size: 17px; font-family: inherit; color: #2D3748;
     text-align: right; padding: 8px 0;
@@ -65,10 +76,11 @@
     font-size: 17px; font-weight: 600; font-family: inherit; cursor: pointer;
     margin-top: 8px; box-shadow: 0 2px 8px rgba(255, 138, 91, 0.25);
     transition: transform 0.1s ease;
+    text-decoration: none; display: block; text-align: center;
   }
   .submit-btn:active { transform: scale(0.98); }
   .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .test-btn {
+  .settings-btn {
     width: 100%; background: transparent; color: #5B8DEF; border: 1px solid #5B8DEF;
     padding: 12px; border-radius: 12px; font-size: 14px; font-weight: 500;
     font-family: inherit; cursor: pointer; margin-top: 10px;
@@ -95,10 +107,7 @@
   }
   .entry:last-child { border-bottom: none; }
   .entry-info { flex: 1; min-width: 0; }
-  .entry-project {
-    font-weight: 500; font-size: 15px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
+  .entry-project { font-weight: 500; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .entry-meta { font-size: 13px; color: #718096; margin-top: 2px; }
   .entry-hours { font-weight: 600; color: #E5734A; font-size: 15px; margin-left: 12px; }
   .empty-state { text-align: center; color: #B8C5D6; font-size: 14px; padding: 20px; }
@@ -139,6 +148,10 @@
   <div class="subtitle" id="todayLabel"></div>
 </header>
 
+<div id="setupNote" class="setup-note" style="display:none;">
+  <strong>One-time setup:</strong> tap "Set email address" below and enter your own Gmail. Entries will be sent there for the Apps Script to pick up.
+</div>
+
 <form id="logForm" autocomplete="off">
   <div class="card">
     <div class="field">
@@ -164,7 +177,7 @@
     </div>
   </div>
   <button type="submit" class="submit-btn" id="submitBtn">Save to Google Sheet</button>
-  <button type="button" class="test-btn" id="testBtn">Test connection to Google Sheet</button>
+  <button type="button" class="settings-btn" id="setEmailBtn">Set email address</button>
 </form>
 
 <div class="recent-header">Recent on this device</div>
@@ -184,18 +197,26 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="emailModal">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Your Gmail address</div>
+    <div style="padding: 8px 24px 16px; color: #718096; font-size: 13px;">
+      Entries will be emailed here. The Apps Script reads this inbox to write to your sheet.
+    </div>
+    <div class="modal-new" style="border-top: none;">
+      <input type="email" id="emailField" placeholder="you@gmail.com" autocomplete="email" inputmode="email">
+      <button type="button" id="saveEmailBtn">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="status" id="status"></div>
 
 <script>
-  // ============================================================
-  // CONFIG
-  // ============================================================
-  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzgJzMhBFgG363Zx9bQXTtvE7-6Z1aBQzIni2jM1Q2rA_y5HwkRpwygDyrxZjA17kf2/exec";
-
   const PRESET_PROJECTS = [
     "Client work", "Email", "Meetings", "Deep work", "Admin", "Personal project"
   ];
-  // ============================================================
 
   const $ = id => document.getElementById(id);
 
@@ -240,19 +261,31 @@
     const val = $("newProjectInput").value.trim();
     if (val) selectProject(val);
   });
-  $("newProjectInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const val = $("newProjectInput").value.trim();
-      if (val) selectProject(val);
+
+  // ----- Email config modal -----
+  function openEmailModal() {
+    $("emailField").value = localStorage.getItem("targetEmail") || "";
+    $("emailModal").classList.add("show");
+  }
+  function closeEmailModal() { $("emailModal").classList.remove("show"); }
+  $("setEmailBtn").addEventListener("click", openEmailModal);
+  $("emailModal").addEventListener("click", closeEmailModal);
+  $("saveEmailBtn").addEventListener("click", () => {
+    const v = $("emailField").value.trim();
+    if (v && v.includes("@")) {
+      localStorage.setItem("targetEmail", v);
+      $("setupNote").style.display = "none";
+      showStatus("Email saved ✓", "success");
+      closeEmailModal();
+    } else {
+      showStatus("Enter a valid email", "error");
     }
   });
 
   function initDate() {
     const now = new Date();
     const pad = n => String(n).padStart(2, "0");
-    const iso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-    $("date").value = iso;
+    $("date").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     $("todayLabel").textContent = now.toLocaleDateString("en-US", {
       weekday: "long", month: "long", day: "numeric"
     });
@@ -262,11 +295,7 @@
     const s = $("startTime").value;
     const e = $("endTime").value;
     const display = $("totalDisplay");
-    if (!s || !e) {
-      display.textContent = "—";
-      display.classList.add("empty");
-      return null;
-    }
+    if (!s || !e) { display.textContent = "—"; display.classList.add("empty"); return null; }
     const [sh, sm] = s.split(":").map(Number);
     const [eh, em] = e.split(":").map(Number);
     let mins = (eh * 60 + em) - (sh * 60 + sm);
@@ -310,10 +339,7 @@
   function renderRecent() {
     const recent = JSON.parse(localStorage.getItem("recentEntries") || "[]");
     const list = $("recentList");
-    if (recent.length === 0) {
-      list.innerHTML = '<div class="empty-state">No entries yet</div>';
-      return;
-    }
+    if (recent.length === 0) { list.innerHTML = '<div class="empty-state">No entries yet</div>'; return; }
     list.innerHTML = recent.map(e => `
       <div class="entry">
         <div class="entry-info">
@@ -321,8 +347,7 @@
           <div class="entry-meta">${e.date} · ${e.start} – ${e.end}</div>
         </div>
         <div class="entry-hours">${e.hours.toFixed(2)}h</div>
-      </div>
-    `).join("");
+      </div>`).join("");
   }
   function escapeHtml(s) {
     return s.replace(/[&<>"']/g, c => ({
@@ -330,56 +355,17 @@
     }[c]));
   }
 
-  // ============================================================
-  // JSONP — the magic that makes this work
-  // ============================================================
-  // Instead of fetch(), we inject a <script> tag whose src is the
-  // Apps Script URL. The script returns JavaScript like:
-  //    callback123({status: "ok"});
-  // which runs our callback function. No CORS check applies because
-  // <script> tags can load from anywhere.
-  // ============================================================
-
-  let jsonpCounter = 0;
-
-  function callScript(params, timeoutMs = 15000) {
-    return new Promise((resolve, reject) => {
-      const callbackName = "jsonpCb_" + (++jsonpCounter) + "_" + Date.now();
-      const script = document.createElement("script");
-      let done = false;
-
-      const cleanup = () => {
-        if (done) return;
-        done = true;
-        delete window[callbackName];
-        if (script.parentNode) script.parentNode.removeChild(script);
-        clearTimeout(timeout);
-      };
-
-      window[callbackName] = (data) => {
-        cleanup();
-        resolve(data);
-      };
-
-      script.onerror = () => {
-        cleanup();
-        reject(new Error("Network error reaching Google"));
-      };
-
-      const timeout = setTimeout(() => {
-        cleanup();
-        reject(new Error("Timed out (15s)"));
-      }, timeoutMs);
-
-      const allParams = { ...params, callback: callbackName };
-      const qs = new URLSearchParams(allParams).toString();
-      script.src = `${SCRIPT_URL}?${qs}`;
-      document.body.appendChild(script);
-    });
-  }
-
-  $("logForm").addEventListener("submit", async (ev) => {
+  // ----- Submit handler: opens Mail composer -----
+  $("logForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
+
+    const targetEmail = localStorage.getItem("targetEmail");
+    if (!targetEmail) {
+      showStatus("Set your email address first", "error", 3500);
+      openEmailModal();
+      return;
+    }
+
     const hours = calcTotal();
     if (hours === null) { showStatus("Fill in start and end time", "error"); return; }
     const project = $("projectInput").value.trim();
@@ -393,41 +379,25 @@
       hours: Number(hours.toFixed(2))
     };
 
-    const btn = $("submitBtn");
-    btn.disabled = true;
-    btn.textContent = "Saving...";
+    // Build the email body the Apps Script will parse
+    const body =
+      `DATE: ${payload.date}\n` +
+      `PROJECT: ${payload.project}\n` +
+      `START: ${payload.start}\n` +
+      `END: ${payload.end}\n` +
+      `HOURS: ${payload.hours.toFixed(2)}\n`;
 
-    try {
-      const result = await callScript(payload);
-      if (result.status === "ok") {
-        saveLocal(payload);
-        showStatus("Saved to Google Sheet ✓", "success");
-        resetForm();
-      } else {
-        throw new Error(result.message || "Server returned error");
-      }
-    } catch (err) {
-      console.error(err);
-      showStatus("Couldn't save: " + err.message, "error", 4000);
-      saveLocal(payload);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Save to Google Sheet";
-    }
-  });
+    const subject = "TimeLog Entry";
+    const mailto = `mailto:${encodeURIComponent(targetEmail)}` +
+                   `?subject=${encodeURIComponent(subject)}` +
+                   `&body=${encodeURIComponent(body)}`;
 
-  $("testBtn").addEventListener("click", async () => {
-    showStatus("Testing...", "");
-    try {
-      const result = await callScript({});
-      if (result.status === "ok" && result.message) {
-        showStatus("Connected to Apps Script ✓", "success", 3000);
-      } else {
-        showStatus("Unexpected response", "error", 4000);
-      }
-    } catch (err) {
-      showStatus("Cannot reach: " + err.message, "error", 5000);
-    }
+    saveLocal(payload);
+    resetForm();
+    showStatus("Opening Mail...", "success");
+
+    // Open Mail composer
+    window.location.href = mailto;
   });
 
   function resetForm() {
@@ -444,8 +414,10 @@
 
   initDate();
   renderRecent();
+  if (!localStorage.getItem("targetEmail")) {
+    $("setupNote").style.display = "block";
+  }
 </script>
 
 </body>
 </html>
-
